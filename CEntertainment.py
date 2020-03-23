@@ -1,12 +1,8 @@
 import os
 
-from ImageCloud import ImageCloud
+from ImageCloud import ImageCloud, IMAGE_NOT_CACHED, IMAGE_COVER_DOWNLOADING
 from Scrapy import Scrapy
 from .Driver.MongoDB import MongoDB
-
-MANGA_NOT_CACHED = 0
-MANGA_COVER_DOWNLOADING = 1
-MANGA_COVER_DOWNLOADED = 2
 
 
 class CEntertainment:
@@ -14,34 +10,23 @@ class CEntertainment:
         if db_driver is "MongoDB":
             self.client = MongoDB(username, password, host, port)
         self.db = self.client.centertainment
-        self.image_cloud = ImageCloud(username, password, host, port)
+        self.image_cloud = ImageCloud(username, password, host, 27018)
         self.scrapy = Scrapy(username, password, host, port)
 
-    def add_manga_resource(self, source, source_id, resource_info=None):
-        if resource_info is None:
-            resource_info = dict()
+    def insert_manga_resource(self, source, source_id, thumb_id, info):
         resource = dict()
         resource["source"] = source
         resource["source_id"] = source_id
-        resource.update(resource_info)
-
-        self.__add_resource("manga_resource", resource)
-
-    def download_manga_cover(self, success):
-        for item in self.__get_null_cover("manga_resource"):
-            self.__set_resource_status("manga_resource", {"_id": item['_id']}, MANGA_COVER_DOWNLOADING)
-            nhentai_item = list(self.scrapy.find("nhentai", {"_id": item["source_id"]}))[0]
-            self.image_cloud.add_task(nhentai_item['thumb_urls'][:3], item['thumb_id'], "Manga" + os.path.sep + "18R")
-        self.image_cloud.start(success)
+        resource["thumb_id"] = thumb_id
+        resource["tags"] = info["tags"]
+        resource["languages"] = info["languages"]
+        resource["artists"] = info["artists"]
+        resource["name"] = info["original_name"] if info["original_name"] is not None else info["name"]
+        resource["page_count"] = info["page"]
+        self.db.manga_resource.save(resource)
 
     def change_manga_resource_status(self, query, status):
         self.__set_resource_status("manga_resource", query, status)
 
-    def __add_resource(self, collection, resource):
-        self.db.get_collection(collection).save(resource)
-
-    def __get_null_cover(self, collection):
-        return self.db.get_collection(collection).find({"status": MANGA_NOT_CACHED})
-
     def __set_resource_status(self, collection, query, status):
-        return self.db.get_collection(collection).find_and_modify(query, {'$set': {'status': status}})
+        return self.image_cloud.db.get_collection(collection).find_and_modify(query, {'$set': {'status': status}})
